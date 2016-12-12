@@ -137,6 +137,9 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	t := time.Now()
 
 	tz, err := time.LoadLocation("America/Chicago")
+	if err != nil { // Handle errors reading the config file
+		log.Fatalf("bad timezone: %s \n", err)
+	}
 
 	date := t.In(tz).Format("3:04pm on Mon, Jan _2")
 

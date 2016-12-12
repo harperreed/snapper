@@ -147,7 +147,7 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	description := " 📷 " + title + " @ " + date
 
 	//grab image from camera
-	snapshot_url := camera["url"]
+	snapshot_url := camera["url"].(string)
 
 	snapshot_body := make(chan []byte)
 	go grabSnapshot(snapshot_url, snapshot_body)

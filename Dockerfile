@@ -10,7 +10,7 @@ RUN apt-get update --fix-missing -y &&\
 
 ADD ./ /snapper
 WORKDIR /snapper
-RRUN go get
+RUN go get
 RUN go build
 
 # Configure runtime

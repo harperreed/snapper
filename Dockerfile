@@ -11,8 +11,6 @@ RUN apt-get update --fix-missing -y &&\
 ADD ./ /snapper
 WORKDIR /snapper
 
-ENV GOPATH /snapper
-
 RUN go get
 RUN go build
 RUN go install

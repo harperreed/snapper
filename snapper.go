@@ -132,11 +132,13 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	camera_name := vars["filename"]
 
 	cameras := viper.GetStringMap("Cameras")
-	camera := cameras[camera_name].(map[interface{}]interface{})
+	camera := cameras[camera_name].(map[string]interface{})
 
 	t := time.Now()
 
-	date := t.Format("3:04pm on Mon, Jan _2")
+	tz, err := time.LoadLocation("America/Chicago")
+
+	date := t.In(tz).Format("3:04pm on Mon, Jan _2")
 
 	title := camera["title"].(string)
 	description := " 📷 " + title + " @ " + date
@@ -200,6 +202,8 @@ func main() {
 	if err != nil {             // Handle errors reading the config file
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
+
+	log.Println(viper.Debug())
 
 	port := os.Getenv("PORT")
 	if port == "" {

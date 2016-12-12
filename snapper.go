@@ -203,8 +203,6 @@ func main() {
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
 
-	log.Println(viper.Debug())
-
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = viper.GetString("http.port")

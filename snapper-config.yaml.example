@@ -1,0 +1,31 @@
+imgur:
+  AccessToken: 00
+  RefreshToken: 00
+  ClientID: 00
+  ClientSecret: 00
+  album: 00
+Twilio:
+  accountSid: 00
+  authToken: 00
+  from: "+00"
+  to:
+    - "+00"
+    - "+00"
+Cameras:
+  entryway:
+      title: "Entryway Camera"
+      name: "entryway.gif"
+      url: "http://192.168.1.1/snap.jpeg"
+      frames: 2
+  frontyard:
+      title: "Frontyard Camera"
+      name: "frontyard.gif"
+      url: "http://192.168.1.1/snap.jpeg"
+      frames: 2
+  backporch:
+      title: "Back Porch Camera"
+      name: "backporch.gif"
+      url: "http://192.168.1.1/snap.jpeg"
+      frames: 2
+http:
+  port: 8080

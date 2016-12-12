@@ -1,4 +1,4 @@
-FROM debian:jessie
+FROM golang
 MAINTAINER Harper Rules, LLC. <harper@harperrules.com>
 
 # Install necessary packages
@@ -10,9 +10,16 @@ RUN apt-get update --fix-missing -y &&\
 
 ADD ./ /snapper
 WORKDIR /snapper
+
+ENV GOPATH /snapper
+
 RUN go get
 RUN go build
+RUN go install
 
 # Configure runtime
 USER nobody
-CMD snapper
+
+ENTRYPOINT /go/bin/snapper
+
+EXPOSE 8080

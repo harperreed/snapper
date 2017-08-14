@@ -2,33 +2,37 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
+
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
+	"strconv"
+
 	"os"
 
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/mattn/go-scan"
+
 	"github.com/sfreiberg/gotwilio"
 	"github.com/spf13/viper"
-	"golang.org/x/net/context"
-	"golang.org/x/oauth2"
+
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awsutil"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 const (
 	endpoint = "https://api.imgur.com/3/image"
 )
 
-type ImgurConfig struct {
-	Album        string
-	clientID     string
-	ClientSecret string
-	AccessToken  string
-	RefreshToken string
+type AWSConfig struct {
+	bucket       string
+	awsAccessKey string
+	awsSecret    string
+	awsRegion    string
 }
 
 type TwilioConfig struct {
@@ -45,9 +49,10 @@ func grabSnapshot(url string, snapshot_body chan []byte) {
 	if e != nil {
 		log.Fatal(e)
 	}
+	log.Println(response.ContentLength)
 
 	defer response.Body.Close()
-	buf := bytes.NewBuffer(make([]byte, 0, response.ContentLength))
+	buf := bytes.NewBuffer(make([]byte, 0))
 	_, err := buf.ReadFrom(response.Body)
 	if err != nil {
 		log.Fatal(err)
@@ -57,59 +62,44 @@ func grabSnapshot(url string, snapshot_body chan []byte) {
 
 }
 
-func uploadToImgur(image_body []byte, title string, description string, imgurConfig *ImgurConfig, imgur_link chan string) {
-
-	params := url.Values{
-		"image":       {base64.StdEncoding.EncodeToString(image_body)},
-		"album":       {imgurConfig.Album},
-		"title":       {title},
-		"description": {description},
-	}
-
-	var res *http.Response
-
-	config := &oauth2.Config{
-		ClientID:     imgurConfig.clientID,
-		ClientSecret: imgurConfig.ClientSecret,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  "https://api.imgur.com/oauth2/authorize",
-			TokenURL: "https://api.imgur.com/oauth2/token",
-		},
-	}
-
-	token := new(oauth2.Token)
-	token.AccessToken = imgurConfig.AccessToken
-	token.RefreshToken = imgurConfig.RefreshToken
-	token.Expiry = time.Now().Add(360)
-
-	client := config.Client(context.Background(), token)
-	//client, err := config.Client(context.Background(), token)
-
-	res, err := client.PostForm(endpoint, params)
+func uploadToS3(image_body []byte, title string, cameraname string, awsConfig *AWSConfig, s3_object_link chan string) {
+	token := ""
+	creds := credentials.NewStaticCredentials(awsConfig.awsAccessKey, awsConfig.awsSecret, token)
+	_, err := creds.Get()
 	if err != nil {
-		log.Fatalln(os.Stderr, "post:", err)
-		os.Exit(1)
+		log.Printf("bad credentials: %s", err)
 	}
+	cfg := aws.NewConfig().WithRegion(awsConfig.awsRegion).WithCredentials(creds)
+	svc := s3.New(session.New(), cfg)
+	fileBytes := bytes.NewReader(image_body)
 
-	if res.StatusCode != 200 {
-		var message string
-		err = scan.ScanJSON(res.Body, "data/error", &message)
-		if err != nil {
-			message = res.Status
-		}
-		log.Fatalln(os.Stderr, "post:", message)
-		os.Exit(1)
+	timestamp := strconv.FormatInt(time.Now().UTC().Unix(), 10)
+	filename := timestamp + ".jpg"
+	log.Println(filename)
+
+	path := "/" + cameraname + "/" + filename
+	params := &s3.PutObjectInput{
+		Bucket:      aws.String(awsConfig.bucket),
+		Key:         aws.String(path),
+		Body:        fileBytes,
+		ContentType: aws.String("image/jpeg"),
 	}
-	defer res.Body.Close()
-
-	var link string
-	err = scan.ScanJSON(res.Body, "data/link", &link)
+	resp, err := svc.PutObject(params)
 	if err != nil {
-		log.Fatalln(os.Stderr, "post:", err)
-		os.Exit(1)
+		log.Printf("bad response: %s", err)
 	}
-	imgur_link <- link
+	log.Printf("response %s", awsutil.StringValue(resp))
 
+	req, _ := svc.GetObjectRequest(&s3.GetObjectInput{
+		Bucket: aws.String(awsConfig.bucket),
+		Key:    aws.String(path),
+	})
+	url, err := req.Presign(300 * time.Second)
+	if err != nil {
+		log.Printf("error %s", err)
+	}
+
+	s3_object_link <- url
 }
 
 func sendMMS(message string, link string, twilioConfig *TwilioConfig) {
@@ -130,9 +120,12 @@ func sendMMS(message string, link string, twilioConfig *TwilioConfig) {
 func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	camera_name := vars["filename"]
+	log.Println(camera_name)
 
 	cameras := viper.GetStringMap("Cameras")
-	camera := cameras[camera_name].(map[string]interface{})
+
+	camera := cameras[camera_name].(map[interface{}]interface{})
+	log.Println(camera["url"])
 
 	t := time.Now()
 
@@ -155,19 +148,14 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	body := <-snapshot_body
 	log.Println("grabbed snapshot")
 
-	// upload to imgur
-	imgur_link := make(chan string)
-
-	imgur := &ImgurConfig{Album: viper.GetString("imgur.album"),
-		clientID:     viper.GetString("imgur.ClientID"),
-		ClientSecret: viper.GetString("imgur.ClientSecret"),
-		AccessToken:  viper.GetString("imgur.AccessToken"),
-		RefreshToken: viper.GetString("imgur.RefreshToken"),
+	aws := &AWSConfig{bucket: viper.GetString("aws.bucket"),
+		awsAccessKey: viper.GetString("aws.accessKeyId"),
+		awsSecret:    viper.GetString("aws.secretAccessKey"),
+		awsRegion:    viper.GetString("aws.region"),
 	}
-
-	go uploadToImgur(body, title, description, imgur, imgur_link)
-
-	link := <-imgur_link
+	s3_link := make(chan string)
+	go uploadToS3(body, title, camera_name, aws, s3_link)
+	link := <-s3_link
 
 	// send sms
 

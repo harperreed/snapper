@@ -124,7 +124,7 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 
 	cameras := viper.GetStringMap("Cameras")
 
-	camera := cameras[camera_name].(map[interface{}]interface{})
+	camera := cameras[camera_name].(map[string]interface{})
 	log.Println(camera["url"])
 
 	t := time.Now()

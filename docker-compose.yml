@@ -1,0 +1,12 @@
+version: '2'
+services:
+  snapper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: snapper
+    restart: unless-stopped
+    ports:
+      - "6060:8080"
+    volumes:
+      - ./snapper-config.yaml:/go/src/bin/snapper-config.yaml

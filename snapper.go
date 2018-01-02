@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"os"
@@ -121,6 +122,7 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	camera_name := vars["filename"]
 	log.Println(camera_name)
+	log.Println("Handle the dudes")
 
 	cameras := viper.GetStringMap("Cameras")
 
@@ -137,9 +139,11 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	date := t.In(tz).Format("3:04pm on Mon, Jan _2")
 
 	title := camera["title"].(string)
-	description := " 📷 " + title + " @ " + date
+	description := title + " @ " + date
 
 	//grab image from camera
+	log.Println("Grab Image from camera")
+
 	snapshot_url := camera["url"].(string)
 
 	snapshot_body := make(chan []byte)
@@ -157,18 +161,23 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 	go uploadToS3(body, title, camera_name, aws, s3_link)
 	link := <-s3_link
 
-	// send sms
+	// send notification
+	log.Println("Send notification")
 
-	twilioConfig := &TwilioConfig{
-		accountSid: viper.GetString("twilio.accountSid"),
-		authToken:  viper.GetString("twilio.authToken"),
-		to:         viper.GetStringSlice("twilio.to"),
-		from:       viper.GetString("twilio.from"),
+	notification_url := viper.GetString("notifications.url")
+	form := url.Values{
+		"image_url": {link},
+		"message":   {description},
 	}
-	message := description
 
-	go sendMMS(message, link, twilioConfig)
-	log.Println(description)
+	notifBody := bytes.NewBufferString(form.Encode())
+	rsp, err := http.Post(notification_url, "application/x-www-form-urlencoded", notifBody)
+	if err != nil {
+		log.Fatal(err)
+		log.Fatalf("Error connecting to notification server")
+
+	}
+	defer rsp.Body.Close()
 
 	fmt.Fprintf(w, "Snapshot taken", r.URL.Path[1:])
 }

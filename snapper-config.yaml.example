@@ -1,16 +1,10 @@
-imgur:
-  AccessToken: 00
-  RefreshToken: 00
-  ClientID: 00
-  ClientSecret: 00
-  album: 00
-Twilio:
-  accountSid: 00
-  authToken: 00
-  from: "+00"
-  to:
-    - "+00"
-    - "+00"
+notifications:
+  url: URL
+aws:
+  accessKeyId: asd
+  secretAccessKey: sdf
+  region: us-west-1
+  bucket: bucket
 Cameras:
   entryway:
       title: "Entryway Camera"

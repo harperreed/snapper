@@ -9,11 +9,17 @@ import (
 	"net/url"
 	"strconv"
 
+    MQTT "github.com/eclipse/paho.mqtt.golang"
+
+    "os/signal"
+    "syscall"
+    "strings"
+
 	"os"
 
 	"time"
 
-	"github.com/gorilla/mux"
+
 
 	"github.com/sfreiberg/gotwilio"
 	"github.com/spf13/viper"
@@ -116,11 +122,7 @@ func sendMMS(message string, link string, twilioConfig *TwilioConfig) {
 	}
 }
 
-// handlers
-
-func snapshotHandler(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	camera_name := vars["filename"]
+func takeSnapshot(camera_name string){
 	log.Println(camera_name)
 	log.Println("Handle the dudes")
 
@@ -178,8 +180,22 @@ func snapshotHandler(w http.ResponseWriter, r *http.Request) {
 
 	}
 	defer rsp.Body.Close()
+}
 
-	fmt.Fprintf(w, "Snapshot taken", r.URL.Path[1:])
+// handlers
+
+
+
+var snapshotHandler MQTT.MessageHandler = func(client MQTT.Client, msg MQTT.Message) {
+    fmt.Printf("MSG: %s\n", msg.Payload())
+
+	camera_name := strings.Split(msg.Topic(), "/")[2]
+	go takeSnapshot(camera_name)
+    fmt.Printf("MSG: %s\n", camera_name)
+    text := fmt.Sprintf("this is result msg #%d!", 1)
+
+    token := client.Publish("reedazawa/snapshot_result", 0, false, text)
+    token.Wait()
 }
 
 func main() {
@@ -190,10 +206,7 @@ func main() {
 	log.Println("Starting up...")
 
 	// handlers
-	r := mux.NewRouter()
-	r.HandleFunc("/snapshot/{filename}.jpg", snapshotHandler)
 
-	http.Handle("/", r)
 
 	viper.SetConfigName("snapper-config")
 	viper.SetConfigType("yaml")
@@ -203,18 +216,37 @@ func main() {
 		log.Fatalf("Fatal error config file: %s \n", err)
 	}
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = viper.GetString("http.port")
+	broker := os.Getenv("BROKER")
+	if broker == "" {
+		broker = viper.GetString("mqtt.broker")
 	}
 
-	addr := ":" + port
-
-	//Listen on non-tls
-	log.Println("Listening [" + addr + "]...")
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Println("Serving on " + addr + " failed")
-		log.Fatal(err)
+	topic := os.Getenv("TOPIC")
+	if topic == "" {
+		topic = viper.GetString("mqtt.topic")
 	}
+	
+
+
+    c := make(chan os.Signal, 1)
+    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+
+    opts := MQTT.NewClientOptions().AddBroker(broker)
+    opts.SetClientID("mac-go")
+    opts.SetDefaultPublishHandler(snapshotHandler)
+
+
+    opts.OnConnect = func(c MQTT.Client) {
+            if token := c.Subscribe(topic, 0, snapshotHandler); token.Wait() && token.Error() != nil {
+                    panic(token.Error())
+            }
+    }
+    client := MQTT.NewClient(opts)
+    if token := client.Connect(); token.Wait() && token.Error() != nil {
+            panic(token.Error())
+    } else {
+            fmt.Printf("Connected to server\n")
+    }
+    <-c
 
 }

@@ -9,19 +9,16 @@ import (
 	"net/url"
 	"strconv"
 
-    MQTT "github.com/eclipse/paho.mqtt.golang"
+	MQTT "github.com/eclipse/paho.mqtt.golang"
 
-    "os/signal"
-    "syscall"
-    "strings"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"os"
 
 	"time"
 
-
-
-	"github.com/sfreiberg/gotwilio"
 	"github.com/spf13/viper"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -31,22 +28,11 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 )
 
-const (
-	endpoint = "https://api.imgur.com/3/image"
-)
-
 type AWSConfig struct {
 	bucket       string
 	awsAccessKey string
 	awsSecret    string
 	awsRegion    string
-}
-
-type TwilioConfig struct {
-	accountSid string
-	authToken  string
-	to         []string
-	from       string
 }
 
 func grabSnapshot(url string, snapshot_body chan []byte) {
@@ -101,7 +87,7 @@ func uploadToS3(image_body []byte, title string, cameraname string, awsConfig *A
 		Bucket: aws.String(awsConfig.bucket),
 		Key:    aws.String(path),
 	})
-	url, err := req.Presign(300 * time.Second)
+	url, err := req.Presign(86400 * time.Second)
 	if err != nil {
 		log.Printf("error %s", err)
 	}
@@ -109,20 +95,7 @@ func uploadToS3(image_body []byte, title string, cameraname string, awsConfig *A
 	s3_object_link <- url
 }
 
-func sendMMS(message string, link string, twilioConfig *TwilioConfig) {
-	twilio := gotwilio.NewTwilioClient(twilioConfig.accountSid, twilioConfig.authToken)
-
-	from := twilioConfig.from
-	to := twilioConfig.to
-
-	for _, number := range to {
-		log.Println("Sending SMS: " + number)
-		// element is the element from someSlice for where we are
-		twilio.SendMMS(from, number, message, link, "", "")
-	}
-}
-
-func takeSnapshot(camera_name string){
+func takeSnapshot(camera_name string) {
 	log.Println(camera_name)
 	log.Println("Handle the dudes")
 
@@ -184,18 +157,16 @@ func takeSnapshot(camera_name string){
 
 // handlers
 
-
-
 var snapshotHandler MQTT.MessageHandler = func(client MQTT.Client, msg MQTT.Message) {
-    fmt.Printf("MSG: %s\n", msg.Payload())
+	fmt.Printf("MSG: %s\n", msg.Payload())
 
 	camera_name := strings.Split(msg.Topic(), "/")[2]
 	go takeSnapshot(camera_name)
-    fmt.Printf("MSG: %s\n", camera_name)
-    text := fmt.Sprintf("this is result msg #%d!", 1)
+	fmt.Printf("MSG: %s\n", camera_name)
+	text := fmt.Sprintf("this is result msg #%d!", 1)
 
-    token := client.Publish("reedazawa/snapshot_result", 0, false, text)
-    token.Wait()
+	token := client.Publish("reedazawa/snapshot_result", 0, false, text)
+	token.Wait()
 }
 
 func main() {
@@ -206,7 +177,6 @@ func main() {
 	log.Println("Starting up...")
 
 	// handlers
-
 
 	viper.SetConfigName("snapper-config")
 	viper.SetConfigType("yaml")
@@ -225,28 +195,25 @@ func main() {
 	if topic == "" {
 		topic = viper.GetString("mqtt.topic")
 	}
-	
 
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 
-    c := make(chan os.Signal, 1)
-    signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	opts := MQTT.NewClientOptions().AddBroker(broker)
+	opts.SetClientID("mac-go")
+	opts.SetDefaultPublishHandler(snapshotHandler)
 
-    opts := MQTT.NewClientOptions().AddBroker(broker)
-    opts.SetClientID("mac-go")
-    opts.SetDefaultPublishHandler(snapshotHandler)
-
-
-    opts.OnConnect = func(c MQTT.Client) {
-            if token := c.Subscribe(topic, 0, snapshotHandler); token.Wait() && token.Error() != nil {
-                    panic(token.Error())
-            }
-    }
-    client := MQTT.NewClient(opts)
-    if token := client.Connect(); token.Wait() && token.Error() != nil {
-            panic(token.Error())
-    } else {
-            fmt.Printf("Connected to server\n")
-    }
-    <-c
+	opts.OnConnect = func(c MQTT.Client) {
+		if token := c.Subscribe(topic, 0, snapshotHandler); token.Wait() && token.Error() != nil {
+			panic(token.Error())
+		}
+	}
+	client := MQTT.NewClient(opts)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	} else {
+		fmt.Printf("Connected to server\n")
+	}
+	<-c
 
 }

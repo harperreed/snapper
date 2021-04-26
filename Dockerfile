@@ -8,11 +8,13 @@ ENV APP_ENV $app_env
 
 RUN mkdir -p /go/src/github.com/harperreed/snapper/
 COPY snapper.go /go/src/github.com/harperreed/snapper/
+COPY go.mod /go/src/github.com/harperreed/snapper/
 WORKDIR /go/src/github.com/harperreed/snapper/
 
 RUN go get ./
-RUN go build
+# RUN go build
+RUN go install github.com/harperreed/snapper
 
 ENTRYPOINT /go/bin/snapper
-  
+
 EXPOSE 8080
